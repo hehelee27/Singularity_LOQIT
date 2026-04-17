@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "922874321764",
+    "project_id": "loqit-62447",
+    "storage_bucket": "loqit-62447.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:922874321764:android:295086598c0efd5a89f871",
+        "android_client_info": {
+          "package_name": "com.devesh.loqit"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "922874321764-haqes0v5s0jb3ncfkqcq2j2sdppis9kt.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBevXbKhqx6DpSTqRBWqQ9zEL4_S9fOb2w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "922874321764-haqes0v5s0jb3ncfkqcq2j2sdppis9kt.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
