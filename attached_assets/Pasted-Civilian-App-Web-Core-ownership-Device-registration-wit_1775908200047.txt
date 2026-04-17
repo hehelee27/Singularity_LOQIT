@@ -1,0 +1,65 @@
+Civilian (App + Web)
+Core ownership
+
+Device registration with IMEI, serial number, and model
+Photo proof of ownership captured at registration time
+Ownership transfer flow (selling your phone to someone else)
+Multi-device management (register multiple devices under one account)
+Device status history — full audit trail of every state change
+
+Recovery workflow
+
+Mark device lost/stolen with one tap
+Attach incident details — when, where, how it was lost
+File a police report directly from the app (generates a formatted PDF)
+Real-time status feed — every detection ping, location report, and chat event in one timeline
+Recovery confirmation flow — close the case, mark device found
+
+Notifications
+
+Push alert the moment a BLE detection happens
+Location update alerts when finder reports a new position
+Chat message notifications
+Escalation alert if device hasn't been found in 48h
+
+
+Finder (App only)
+
+Passive background BLE scanning — no manual action needed
+Detection notification with device details and contact option
+Anonymous one-tap chat with owner
+Location report — send current GPS coordinates to owner
+Reward acknowledgment flow (if owner has set a reward)
+
+
+Police Dashboard (Web)
+
+Command overview — live metrics: open cases, detections today, recovery rate, average time to recovery
+Case management — assign cases to officers, track status, add notes
+Geospatial heatmap — theft hotspots plotted on map using all reported locations
+Device search — look up any IMEI or serial number instantly
+Chat intelligence — view all active finder-owner chats, AI risk scoring via Groq flags suspicious conversations
+Evidence export — download case files as PDF for court use
+Officer accounts with role-based access (constable vs. inspector vs. admin)
+Bulk report — export monthly/weekly recovery stats
+
+
+Trust & Safety
+
+Duplicate IMEI detection — flags when same IMEI registered under two accounts
+Fake finder detection — AI flags finders who report location but never initiate chat
+Rate limiting on device registration — prevents spam registrations
+Auto-expire chat rooms after device is marked recovered
+Report abuse — owner or finder can flag a chat conversation
+
+
+Missing features that would make SPORS exceptional
+These don't exist yet but would genuinely set it apart:
+Reward system — owner sets a cash reward at time of reporting. Finder gets a Razorpay/UPI payment link automatically when recovery is confirmed. Incentivizes more people to scan actively.
+Community trust score — finders build a score over time based on successful recoveries. High-trust finders get surfaced first to owners. Creates a reputation layer.
+IMEI blacklist check on registration — before allowing registration, cross-check against CEIR (India's stolen device database). If the IMEI is already blacklisted nationally, reject and alert police automatically.
+Bluetooth Low Energy advertising mode — when a user marks their device lost, their phone starts advertising a SPORS beacon even while locked. Currently you rely on finders detecting it — this makes the lost device itself an active participant.
+Offline detection queue — finder's app caches detections locally when offline (no network in basement, mall, etc.) and batch-syncs when connectivity returns. Critical for India's patchy networks.
+Auto-translate in chat — owner and finder may speak different languages. Groq translates messages in real time. You already have Groq in the stack, this is a small addition with huge real-world impact.
+Web companion for owners — full account + device management on the website so users who lost their only phone can still access recovery tools from a browser or borrowed computer.
+Police verification badge — verified law enforcement accounts get a badge visible
