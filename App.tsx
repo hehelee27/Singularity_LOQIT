@@ -1,13 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from './supabase';
-import { db } from './firebaseConfig';
-
-import {
-  doc,
-  setDoc,
-  getDoc,
-} from 'firebase/firestore';
-
 import {
   View,
   Text,
@@ -23,10 +15,8 @@ import {
 
 import { BleManager } from 'react-native-ble-plx';
 
-
-const manager = new BleManager();
-
 export default function App() {
+  const [manager] = useState(() => new BleManager());
   // Firebase Auth States
   const [user, setUser] = useState<any>(null);
   const [email, setEmail] = useState('');
@@ -35,36 +25,38 @@ export default function App() {
   // BLE States
   const [devices, setDevices] = useState<any[]>([]);
   const [trackedDevice, setTrackedDevice] = useState<any>(null);
+  const [showOnlyLoqit, setShowOnlyLoqit] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [isLost, setIsLost] = useState(false);
-
+  const [lastAlertedId, setLastAlertedId] = useState('');
+  const [lostDevices, setLostDevices] = useState<any[]>([]);
+  const [loqitUsers, setLoqitUsers] = useState<any[]>([]);
   // ---------------- AUTH ----------------
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data }) => {
-      const currentUser = data.session?.user ?? null;
+    if (!isLost || !user?.email) return;
 
-      setUser(currentUser);
+    const intervalId = setInterval(() => {
+      rotateToken();
+    }, 15 * 60 * 1000);
 
-      if (currentUser) {
-        await registerDevice(currentUser);
-      }
-    });
+    return () => clearInterval(intervalId);
+  }, [isLost, user?.email]);
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const currentUser = session?.user ?? null;
+  const rotateToken = async () => {
+    const newToken = generateToken();
 
-      setUser(currentUser);
+    const { error } = await supabase
+      .from('devices')
+      .update({
+        current_token: newToken,
+        token_updated_at: new Date().toISOString(),
+      })
+      .eq('email', user.email);
 
-      if (currentUser) {
-        await registerDevice(currentUser);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
+    if (error) {
+      console.log(error);
+    }
+  };
   const handleSignup = async () => {
     if (!email || !password) {
       Alert.alert('Error', 'Enter email and password');
@@ -89,18 +81,39 @@ export default function App() {
       return;
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
       password,
     });
 
     if (error) {
       Alert.alert('Login Error', error.message);
+      return;
+    }
+
+    if (data?.user) {
+      setUser(data.user);
+      await registerDevice(data.user);
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      Alert.alert('Logout Error', error.message);
+      return;
+    }
+
+    manager.stopDeviceScan();
+
+    setUser(null);
+    setDevices([]);
+    setTrackedDevice(null);
+    setIsScanning(false);
+    setIsLost(false);
+
+    Alert.alert('LOQit', 'Logged out successfully');
   };
 
   const registerDevice = async (currentUser: any) => {
@@ -110,7 +123,6 @@ export default function App() {
       .eq('user_id', currentUser.id)
       .maybeSingle();
 
-    console.log('existing:', existing);
     console.log('fetchError:', fetchError);
 
     if (!existing) {
@@ -133,28 +145,25 @@ export default function App() {
       console.log('insert error:', error);
     }
   };
+
+  const generateToken = () => {
+    return Math.random()
+      .toString(36)
+      .substring(2, 8)
+      .toUpperCase();
+  };
+
   const markAsLost = async () => {
     if (!user) {
       Alert.alert('LOQit', 'Please login first');
       return;
     }
 
-
     const { data: row, error: fetchError } = await supabase
       .from('devices')
       .select('id, device_id, email')
       .eq('email', user.email)
       .maybeSingle();
-
-    const { data: allRows, error: selectError } = await supabase
-      .from('devices')
-      .select('*');
-
-    console.log('SELECT ERROR:', selectError);
-
-    console.log('session email:', user.email);
-    console.log('matched row:', row);
-    console.log('fetch error:', fetchError);
 
     if (fetchError) {
       Alert.alert('Error', fetchError.message);
@@ -166,14 +175,16 @@ export default function App() {
       return;
     }
 
-    const { data: updatedRows, error: updateError } = await supabase
-      .from('devices')
-      .update({ is_lost: true })
-      .eq('id', row.id)
-      .select();
+    const newToken = generateToken();
 
-    console.log('updated row:', updatedRows);
-    console.log('update error:', updateError);
+    const { error: updateError } = await supabase
+      .from('devices')
+      .update({
+        is_lost: true,
+        current_token: newToken,
+        token_updated_at: new Date().toISOString(),
+      })
+      .eq('id', row.id);
 
     if (updateError) {
       Alert.alert('Update Error', updateError.message);
@@ -184,63 +195,168 @@ export default function App() {
 
     Alert.alert(
       'LOQit',
-      `Device ${row.device_id} marked as lost`
+      `Device marked lost.\nSecurity Token: ${newToken}`
     );
   };
   const markAsFound = async () => {
     if (!user) return;
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('devices')
-      .update({ is_lost: false })
-      .eq('email', user.email)
-      .select();
+      .update({
+        is_lost: false,
+        current_token: null,
+      })
+      .eq('email', user.email);
 
-    console.log('markAsFound data:', data);
-    console.log('markAsFound error:', error);
-
-    if (!error) {
-      setIsLost(false);
-      Alert.alert('LOQit', 'Device marked as found');
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
     }
+
+    setIsLost(false);
+
+    Alert.alert(
+      'LOQit',
+      'Device marked as found'
+    );
   };
   // ---------------- BLE ----------------
   const requestPermissions = async () => {
     if (Platform.OS === 'android') {
-      await PermissionsAndroid.requestMultiple([
+      const result = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
       ]);
+
+      const accessFineGranted = result[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED;
+      const bluetoothScanGranted = result[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === PermissionsAndroid.RESULTS.GRANTED;
+      const bluetoothConnectGranted = result[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === PermissionsAndroid.RESULTS.GRANTED;
+
+      if (!accessFineGranted || !bluetoothScanGranted || !bluetoothConnectGranted) {
+        Alert.alert('Permissions', 'Location and Bluetooth permissions required for scanning.');
+        return false;
+      }
+      return true;
+    }
+    return true;
+  };
+
+  const checkLostDevice = async (device: any) => {
+    const values = [
+      device.name,
+      device.localName,
+      device.id,
+    ]
+      .filter(Boolean)
+      .map((v) => String(v).toUpperCase());
+
+    const match = lostDevices.find((item: any) =>
+      values.includes(
+        String(item.current_token).toUpperCase()
+      )
+    );
+
+    if (match && lastAlertedId !== match.device_id) {
+      setLastAlertedId(match.device_id);
+
+      await supabase.from('sightings').insert([
+        {
+          device_id: match.device_id,
+          detected_by: user?.email,
+          rssi: device.rssi,
+        },
+      ]);
+
+      Alert.alert(
+        '🚨 LOQit Alert',
+        'Lost LOQit device detected nearby!'
+      );
+    }
+  };
+
+  const loadLostDevices = async () => {
+    const { data, error } = await supabase
+      .from('devices')
+      .select('*')
+      .eq('is_lost', true);
+
+    if (!error && data) {
+      setLostDevices(data);
+    }
+  };
+
+  const loadLoqitUsers = async () => {
+    const { data, error } = await supabase
+      .from('devices')
+      .select('*');
+
+    if (!error && data) {
+      setLoqitUsers(data);
     }
   };
 
   const scanDevices = async () => {
-    setIsScanning(true);
-    await requestPermissions();
-    setDevices([]);
+    if (isScanning) {
+      console.log('Already scanning');
+      return;
+    }
 
-    manager.startDeviceScan(null, null, (error, device) => {
-      if (error) return;
+    try {
+      setIsScanning(true);
+      setDevices([]);
 
-      if (device) {
-        setDevices((prev) => {
-          const exists = prev.find((d) => d.id === device.id);
-
-          if (exists) {
-            return prev.map((d) =>
-              d.id === device.id ? device : d
-            );
-          }
-
-          return [...prev, device];
-        });
-
-        if (trackedDevice?.id === device.id) {
-          setTrackedDevice(device);
-        }
+      const permsOk = await requestPermissions();
+      if (!permsOk) {
+        setIsScanning(false);
+        return;
       }
-    });
+
+      await loadLoqitUsers();
+
+      await loadLostDevices();
+
+      const state = await manager.state();
+
+      if (state !== 'PoweredOn') {
+        Alert.alert('Bluetooth', 'Turn Bluetooth ON');
+        setIsScanning(false);
+        return;
+      }
+
+      manager.stopDeviceScan();
+
+      setTimeout(() => {
+        manager.startDeviceScan(
+          null,
+          { allowDuplicates: false },
+          (error, device) => {
+            if (error) {
+              setIsScanning(false);
+              return;
+            }
+
+            if (device) {
+              checkLostDevice(device);
+
+              setDevices((prev) => {
+                const exists = prev.find(
+                  (d) => d.id === device.id
+                );
+
+                if (exists) return prev;
+
+                return [...prev, device];
+              });
+            }
+          }
+        );
+      }, 1000);
+    } catch (e) {
+      console.log(e);
+      setIsScanning(false);
+    }
   };
 
   const stopScan = () => {
@@ -323,6 +439,32 @@ export default function App() {
   }
 
   // ---------------- TRACKER SCREEN ----------------
+  const isLoqitUser = (device: any) => {
+    const name =
+      device.name ||
+      device.localName ||
+      device.id ||
+      '';
+
+    return loqitUsers.some((item: any) =>
+      name.includes(item.device_id)
+    );
+  };
+
+  const isLostNearby = (device: any) => {
+    const name =
+      device.name ||
+      device.localName ||
+      device.id ||
+      '';
+
+    return lostDevices.some(
+      (item: any) =>
+        item.current_token === name ||
+        item.current_token === device.id
+    );
+  };
+  
   return (
     <View
       style={{
@@ -394,8 +536,7 @@ export default function App() {
           </Text>
 
           <Text style={{ color: 'white', marginTop: 8 }}>
-            Device:{' '}
-            {trackedDevice.name ||
+            Device: {trackedDevice.name ||
               trackedDevice.localName ||
               'Unnamed Device'}
           </Text>
@@ -447,10 +588,23 @@ export default function App() {
         </View>
       )}
 
+      <View style={{ marginTop: 20 }}>
+        <TouchableOpacity
+          style={styles.buttonDark}
+          onPress={() => setShowOnlyLoqit(!showOnlyLoqit)}
+        >
+          <Text style={styles.buttonText}>
+            {showOnlyLoqit
+              ? 'Show All Devices'
+              : 'Show LOQit Users Only'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       <Text
         style={{
-          color: 'white',
-          marginTop: 20,
+          color: '#0f172a',
+          marginTop: 12,
           fontSize: 18,
           fontWeight: 'bold',
         }}
@@ -460,15 +614,25 @@ export default function App() {
 
       <FlatList
         style={{ marginTop: 10 }}
-        data={[...devices].sort((a, b) => {
-          const aNamed = a.name || a.localName;
-          const bNamed = b.name || b.localName;
+        data={[...devices]
+          .filter((item) => {
+            if (!showOnlyLoqit) return true;
 
-          if (aNamed && !bNamed) return -1;
-          if (!aNamed && bNamed) return 1;
+            return (
+              isLoqitUser(item) ||
+              isLostNearby(item)
+            );
 
-          return (b.rssi || -999) - (a.rssi || -999);
-        })}
+          })
+          .sort((a, b) => {
+            const aNamed = a.name || a.localName;
+            const bNamed = b.name || b.localName;
+
+            if (aNamed && !bNamed) return -1;
+            if (!aNamed && bNamed) return 1;
+
+            return (b.rssi || -999) - (a.rssi || -999);
+          })}
         keyExtractor={(item) => item.id}
         renderItem={({ item, index }) => (
           <TouchableOpacity
@@ -497,6 +661,28 @@ export default function App() {
                 item.localName ||
                 `Unknown Device ${index + 1}`}
             </Text>
+
+            {isLostNearby(item) ? (
+              <Text
+                style={{
+                  color: 'red',
+                  fontWeight: 'bold',
+                  marginTop: 4,
+                }}
+              >
+                🚨 Lost Device Nearby
+              </Text>
+            ) : isLoqitUser(item) ? (
+              <Text
+                style={{
+                  color: '#22c55e',
+                  fontWeight: 'bold',
+                  marginTop: 4,
+                }}
+              >
+                🟢 LOQit User
+              </Text>
+            ) : null}
 
             {trackedDevice?.id === item.id && (
               <Text
@@ -530,8 +716,9 @@ export default function App() {
         )}
       />
     </View>
-  );
+  );  
 }
+
 const styles = StyleSheet.create({
   button: {
     backgroundColor: '#2563eb',
